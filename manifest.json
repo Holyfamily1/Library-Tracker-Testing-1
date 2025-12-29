@@ -1,0 +1,22 @@
+
+{
+  "name": "Holy Family NMTC Library Tracker",
+  "short_name": "HF Library",
+  "description": "A comprehensive Progressive Web App for tracking library attendance and student analytics at Holy Family NMTC.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e1b4b",
+  "theme_color": "#1e1b4b",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/hfnmtc-192/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/hfnmtc-512/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

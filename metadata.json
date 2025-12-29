@@ -1,0 +1,7 @@
+{
+  "name": "Holy Family NMTC Library Tracker",
+  "description": "A comprehensive Progressive Web App for tracking library attendance, study sessions, and student analytics at Holy Family NMTC.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
