@@ -4,9 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 // Use Vite environment variables for sensitive connection strings.
 // These should be configured in the Netlify dashboard.
 // Access environment variables through any cast to satisfy type checking for ImportMeta
-const supabaseUrl = ((import.meta as any).env.VITE_SUPABASE_URL || '').trim();
-// Access environment variables through any cast to satisfy type checking for ImportMeta
-const supabaseAnonKey = ((import.meta as any).env.VITE_SUPABASE_ANON_KEY || '').trim();
+// Added a defensive check for .env to avoid "Cannot read properties of undefined (reading 'VITE_SUPABASE_URL')"
+const env = (import.meta as any).env || {};
+const supabaseUrl = (env.VITE_SUPABASE_URL || '').trim();
+const supabaseAnonKey = (env.VITE_SUPABASE_ANON_KEY || '').trim();
 
 export const isSupabaseConfigured = 
   supabaseUrl.length > 10 && 
