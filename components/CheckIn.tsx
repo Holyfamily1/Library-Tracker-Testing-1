@@ -7,8 +7,8 @@ import { Html5Qrcode, QrCodeSuccessCallback } from 'html5-qrcode';
 interface CheckInProps {
   activeSessions: Session[];
   students: Student[];
-  onCheckIn: (studentId: string) => void;
-  onCheckOut: (sessionId: string, notes?: string) => void;
+  onCheckIn: (studentId: string) => void | Promise<void>;
+  onCheckOut: (sessionId: string, notes?: string) => void | Promise<void>;
   appSettings: AppSettings;
   syncStatus: 'online' | 'syncing' | 'offline' | 'error';
 }
@@ -17,6 +17,7 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
   const [searchTerm, setSearchTerm] = useState('');
   const [manualId, setManualId] = useState('');
   const [now, setNow] = useState(new Date());
+  const [isProcessingLocal, setIsProcessingLocal] = useState<string | null>(null);
   
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
@@ -43,7 +44,6 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
     let isMounted = true;
 
     const startScanner = async () => {
-      // Small delay to ensure DOM is ready and previous instances are cleared
       await new Promise(resolve => setTimeout(resolve, 300));
       if (!isMounted || !isScannerOpen) return;
       
@@ -62,13 +62,12 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
           aspectRatio: 1.0 
         };
 
-        const onScanSuccess: QrCodeSuccessCallback = (decodedText) => {
+        const onScanSuccess: QrCodeSuccessCallback = async (decodedText) => {
           if (isProcessingRef.current) return;
           
           const trimmedCode = decodedText.trim().toUpperCase();
           const student = students.find(s => 
-            s.id.toUpperCase() === trimmedCode || 
-            s.id.toUpperCase() === decodedText.toUpperCase()
+            s.id.toUpperCase() === trimmedCode
           );
 
           if (student) {
@@ -80,16 +79,19 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
             
             setScanSuccess({ 
               name: student.name, 
-              photo: student.photo, 
+              photo: student.photo || '', 
               action,
               id: student.id 
             });
 
-            // Trigger actual check-in or out
-            if (activeSession) {
-              onCheckOut(activeSession.id, "Auto-log via Badge Scanner");
-            } else {
-              onCheckIn(student.id);
+            try {
+              if (activeSession) {
+                await onCheckOut(activeSession.id, "Badge Scanner Checkout");
+              } else {
+                await onCheckIn(student.id);
+              }
+            } catch (err) {
+              console.error("Scanner operation failed:", err);
             }
 
             if ('vibrate' in navigator) navigator.vibrate([100, 50, 100]);
@@ -120,18 +122,11 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
           setHasTorch(false);
         }
       } catch (err: any) {
-        console.error("Scanner Error:", err);
-        if (err.toString().includes("NotAllowedError") || err.toString().includes("Permission denied")) {
-          setScannerError({
-            title: "Access Restricted",
-            message: "Camera permissions are required. Please check your browser settings."
-          });
-        } else {
-          setScannerError({
-            title: "Hardware Conflict",
-            message: "Could not initiate camera. It may be in use by another application."
-          });
-        }
+        console.error("Scanner Initialization Error:", err);
+        setScannerError({
+          title: "Hardware Blocked",
+          message: "Could not initiate camera. Please check browser permissions."
+        });
       }
     };
 
@@ -171,8 +166,13 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
     }
   };
 
-  const filteredStudents = students.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.id.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredStudents = students.filter(s => 
+    s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    s.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const getStudentForSession = (studentId: string) => students.find(s => s.id === studentId);
+
   const getDuration = (checkIn: Date) => {
     const diff = now.getTime() - checkIn.getTime();
     const mins = Math.floor(diff / 60000);
@@ -181,15 +181,18 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
     return { mins, display: `${hrs}h ${m}m` };
   };
 
-  const handleManualCheckIn = (e: React.FormEvent) => {
+  const handleManualCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualId) return;
+    if (!manualId || syncStatus === 'syncing') return;
+    
     const student = students.find(s => s.id.toUpperCase() === manualId.toUpperCase());
     if (student) {
-      onCheckIn(student.id);
+      setIsProcessingLocal(student.id);
+      await onCheckIn(student.id);
       setManualId('');
+      setIsProcessingLocal(null);
     } else {
-      alert('Student ID not found in registry.');
+      alert('Student ID not found in the local registry.');
     }
   };
 
@@ -202,15 +205,16 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
-        <section className="bg-white dark:bg-slate-900 p-5 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-800 transition-colors flex flex-col">
+        <section className="bg-white dark:bg-slate-900 p-5 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col">
           <div className="flex justify-between items-center mb-8">
             <div>
-              <h3 className="text-xl font-black text-[#0f172a] dark:text-white uppercase tracking-tight">Entry Portal</h3>
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Manual or Digital Check-In</p>
+              <h3 className="text-xl font-black text-[#0f172a] dark:text-white uppercase tracking-tight">Access Control</h3>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">Manual ID Verification</p>
             </div>
             <button 
               onClick={() => setIsScannerOpen(true)} 
-              className="w-16 h-16 bg-amber-500 text-[#0f172a] rounded-2xl hover:bg-amber-400 transition-all flex items-center justify-center shadow-xl shadow-amber-500/30 active:scale-90 group relative"
+              disabled={syncStatus === 'syncing'}
+              className="w-16 h-16 bg-amber-500 text-[#0f172a] rounded-2xl hover:bg-amber-400 transition-all flex items-center justify-center shadow-xl shadow-amber-500/30 active:scale-90 group relative disabled:opacity-50"
             >
               <i className="fas fa-qrcode text-2xl group-hover:scale-110 transition-transform"></i>
               <span className="absolute -top-1 -right-1 flex h-4 w-4">
@@ -222,32 +226,44 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
 
           <form onSubmit={handleManualCheckIn} className="flex space-x-3 mb-8">
             <div className="relative flex-1 group">
-              <input type="text" placeholder="STUDENT ID..." className="w-full pl-12 pr-5 py-5 bg-slate-50 dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-base font-black text-[#0f172a] dark:text-white focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none uppercase font-mono shadow-inner transition-all placeholder:text-slate-300 dark:placeholder:text-slate-700" value={manualId} onChange={(e) => setManualId(e.target.value)} />
+              <input 
+                type="text" 
+                placeholder="INPUT ID..." 
+                className="w-full pl-12 pr-5 py-5 bg-slate-50 dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-base font-black text-[#0f172a] dark:text-white focus:border-indigo-500 outline-none uppercase font-mono shadow-inner transition-all placeholder:text-slate-300" 
+                value={manualId} 
+                onChange={(e) => setManualId(e.target.value)} 
+                disabled={syncStatus === 'syncing'}
+              />
               <i className="fas fa-id-card absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 dark:text-slate-700 group-focus-within:text-indigo-500 transition-colors"></i>
             </div>
-            <button type="submit" className="px-8 py-5 bg-[#0f172a] dark:bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-indigo-500 transition-all shadow-xl dark:shadow-black/20 active:scale-95">
-              Submit
+            <button 
+              type="submit" 
+              disabled={syncStatus === 'syncing' || !manualId}
+              className="px-8 py-5 bg-[#0f172a] dark:bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-indigo-500 transition-all shadow-xl active:scale-95 disabled:opacity-50 min-w-[120px]"
+            >
+              {syncStatus === 'syncing' ? <i className="fas fa-sync-alt animate-spin"></i> : 'Check In'}
             </button>
           </form>
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 -mr-2">
+          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 -mr-2 max-h-[380px]">
             <div className="space-y-4">
-              <div className="relative group">
+              <div className="relative group sticky top-0 z-10 bg-white dark:bg-slate-900 pb-2">
                 <input 
                   type="text" 
-                  placeholder="SEARCH FOR STUDENT..." 
+                  placeholder="FILTER BY NAME..." 
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl text-xs font-bold text-[#0f172a] dark:text-white outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-400" 
                   value={searchTerm} 
                   onChange={(e) => setSearchTerm(e.target.value)} 
                 />
-                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 dark:text-slate-700 group-focus-within:text-indigo-500 transition-colors"></i>
+                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 dark:text-slate-700"></i>
               </div>
 
               {filteredStudents.length > 0 ? (
                 filteredStudents.map(student => {
                   const isActive = activeSessions.some(s => s.studentId === student.id);
+                  const isSyncing = isProcessingLocal === student.id;
                   return (
-                    <div key={student.id} className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl border border-transparent hover:border-slate-100 dark:hover:border-slate-700 transition-all group">
+                    <div key={student.id} className="flex items-center justify-between p-3 bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl border border-transparent hover:border-slate-100 dark:hover:border-slate-700 transition-all">
                       <div className="flex items-center space-x-3">
                         <img src={student.photo} alt={student.name} className="w-10 h-10 rounded-xl object-cover" />
                         <div>
@@ -256,21 +272,31 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
                         </div>
                       </div>
                       <button 
-                        onClick={() => isActive ? triggerCheckOut(activeSessions.find(s => s.studentId === student.id)!) : onCheckIn(student.id)}
+                        onClick={async () => {
+                          if (syncStatus === 'syncing') return;
+                          setIsProcessingLocal(student.id);
+                          if (isActive) {
+                             triggerCheckOut(activeSessions.find(s => s.studentId === student.id)!);
+                          } else {
+                             await onCheckIn(student.id);
+                          }
+                          setIsProcessingLocal(null);
+                        }}
+                        disabled={syncStatus === 'syncing'}
                         className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
                           isActive 
                             ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' 
                             : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
-                        }`}
+                        } disabled:opacity-50`}
                       >
-                        {isActive ? 'OUT' : 'IN'}
+                        {isSyncing ? <i className="fas fa-sync-alt animate-spin"></i> : (isActive ? 'LOG OUT' : 'LOG IN')}
                       </button>
                     </div>
                   );
                 })
               ) : (
                 <div className="py-10 text-center">
-                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">No students found</p>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Patron not registered</p>
                 </div>
               )}
             </div>
@@ -278,8 +304,13 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
         </section>
 
         <section className="bg-white dark:bg-slate-900 p-5 md:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-800 transition-colors">
-          <h3 className="text-xl font-black text-[#0f172a] dark:text-white uppercase tracking-tight mb-8">Active Sessions</h3>
-          <div className="space-y-4">
+          <div className="flex justify-between items-center mb-8">
+            <h3 className="text-xl font-black text-[#0f172a] dark:text-white uppercase tracking-tight">Current Occupancy</h3>
+            <span className="text-[10px] font-black bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-lg">
+              {activeSessions.length} IN LIBRARY
+            </span>
+          </div>
+          <div className="space-y-4 max-h-[480px] overflow-y-auto custom-scrollbar pr-2">
             {activeSessions.length > 0 ? (
               activeSessions.map(session => {
                 const student = getStudentForSession(session.studentId);
@@ -291,15 +322,19 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
                         <img src={student?.photo} alt="" className="w-10 h-10 rounded-xl object-cover" />
                         <div>
                           <p className="font-bold text-xs text-[#0f172a] dark:text-white">{student?.name}</p>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase">{session.checkIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase">IN: {session.checkIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
                       </div>
-                      <button onClick={() => triggerCheckOut(session)} className="text-rose-500 hover:text-rose-600 transition-colors p-2">
+                      <button 
+                        onClick={() => triggerCheckOut(session)} 
+                        disabled={syncStatus === 'syncing'}
+                        className="text-rose-500 hover:text-rose-600 transition-colors p-2 disabled:opacity-50"
+                      >
                         <i className="fas fa-sign-out-alt"></i>
                       </button>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{duration.display}</span>
+                      <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{duration.display} elapsed</span>
                       <div className="flex space-x-1">
                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
                         <span className="text-[8px] font-black text-emerald-500 uppercase">Live</span>
@@ -310,24 +345,19 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
               })
             ) : (
               <div className="py-20 text-center">
-                <i className="fas fa-users-slash text-4xl text-slate-100 dark:text-slate-800 mb-4"></i>
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">No active sessions</p>
+                <i className="fas fa-couch text-4xl text-slate-100 dark:text-slate-800 mb-4"></i>
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Library Floor Empty</p>
               </div>
             )}
           </div>
         </section>
       </div>
 
-      {/* Scanner Overlay */}
       {isScannerOpen && (
         <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center p-6">
           <div className="relative w-full max-w-sm aspect-square bg-slate-900 rounded-[2.5rem] overflow-hidden border-4 border-slate-800 shadow-2xl">
             <div id={scannerContainerId} className="w-full h-full"></div>
-            
-            {/* Flash Effect on Success */}
             {isFlashActive && <div className="absolute inset-0 bg-white/40 animate-pulse z-30"></div>}
-            
-            {/* Scanner UI Overlay */}
             <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
               <div className="w-64 h-64 border-2 border-amber-500/50 rounded-3xl relative">
                 <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-amber-500 rounded-tl-xl"></div>
@@ -338,7 +368,6 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
               </div>
             </div>
 
-            {/* Success Feedback */}
             {scanSuccess && (
               <div className="absolute inset-0 bg-emerald-600/90 backdrop-blur-md z-40 flex flex-col items-center justify-center p-8 animate-in zoom-in duration-300">
                 <div className="w-24 h-24 rounded-full bg-white mb-6 flex items-center justify-center shadow-xl">
@@ -351,7 +380,6 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
               </div>
             )}
 
-            {/* Error Overlay */}
             {scannerError && (
               <div className="absolute inset-0 bg-rose-600/95 backdrop-blur-md z-40 flex flex-col items-center justify-center p-10 animate-in fade-in">
                 <i className="fas fa-exclamation-triangle text-white text-5xl mb-6"></i>
@@ -376,22 +404,26 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
         </div>
       )}
 
-      {/* Checkout Notes Modal */}
       <Modal 
         isOpen={isCheckoutModalOpen} 
         onClose={() => setIsCheckoutModalOpen(false)} 
-        title="Check-Out Review"
+        title="Session Termination"
         footer={
           <div className="flex space-x-3 w-full">
             <button onClick={() => setIsCheckoutModalOpen(false)} className="flex-1 py-4 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600">Cancel</button>
             <button 
-              onClick={() => {
-                if (selectedSession) onCheckOut(selectedSession.id, sessionNotes);
+              onClick={async () => {
+                if (selectedSession) {
+                  setIsProcessingLocal(selectedSession.id);
+                  await onCheckOut(selectedSession.id, sessionNotes);
+                }
                 setIsCheckoutModalOpen(false);
+                setIsProcessingLocal(null);
               }}
-              className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-600/20"
+              disabled={syncStatus === 'syncing'}
+              className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-600/20 disabled:opacity-50"
             >
-              Confirm Log
+              {syncStatus === 'syncing' ? <i className="fas fa-sync-alt animate-spin mr-2"></i> : 'Complete Checkout'}
             </button>
           </div>
         }
@@ -407,11 +439,11 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
             </div>
           )}
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Session Observations</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Staff Notes (Optional)</label>
             <textarea 
               value={sessionNotes}
               onChange={(e) => setSessionNotes(e.target.value)}
-              placeholder="Record any notes about this library visit..."
+              placeholder="Record any specific observations..."
               className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-sm font-bold dark:text-white outline-none focus:border-indigo-500 transition-all h-32 resize-none"
             />
           </div>
@@ -421,5 +453,4 @@ const CheckIn: React.FC<CheckInProps> = ({ activeSessions, students, onCheckIn, 
   );
 };
 
-// Default export added to resolve import error in App.tsx
 export default CheckIn;

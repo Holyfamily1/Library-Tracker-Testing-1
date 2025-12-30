@@ -206,7 +206,7 @@ const App: React.FC = () => {
   }, [isDarkMode]);
 
   const fetchData = useCallback(async (silent = false) => {
-    if (demoMode || !isSupabaseConfigured) {
+    if (demoMode && !isSupabaseConfigured) {
       if (patrons.length === 0) setPatrons(MOCK_STUDENTS);
       setSyncStatus('offline');
       return;
@@ -295,7 +295,6 @@ const App: React.FC = () => {
     }
   }, [demoMode]);
 
-  // REAL-TIME SUBSCRIPTION: This ensures all devices update immediately on any DB change
   useEffect(() => {
     if (demoMode || !isSupabaseConfigured) return;
 
@@ -311,9 +310,13 @@ const App: React.FC = () => {
 
   const handleCheckOut = useCallback(async (sessionId: string, notes?: string) => {
     const sessionToClose = activeSessionsRef.current.find(s => s.id === sessionId);
-    if (!sessionToClose) return;
+    if (!sessionToClose) {
+      console.warn("Session not found in active cache, refresh required.");
+      return;
+    }
 
     try {
+      setSyncStatus('syncing');
       const checkOutTime = new Date();
       const duration = Math.round((checkOutTime.getTime() - sessionToClose.checkIn.getTime()) / 60000);
       
@@ -325,38 +328,51 @@ const App: React.FC = () => {
         }).eq('id', sessionId);
         
         if (error) throw error;
-        // The real-time listener will trigger the UI update
+        // Trigger immediate dashboard refresh
+        await fetchData(true);
       } else {
         setActiveSessions(prev => prev.filter(s => s.id !== sessionId));
         const closedSession = { ...sessionToClose, checkOut: checkOutTime, duration: Math.max(1, duration), notes: notes || "Manual Checkout" };
         setSessionHistory(prev => [closedSession, ...prev]);
         setTodaySessions(prev => prev.map(s => s.id === sessionId ? closedSession : s));
+        setSyncStatus('online');
       }
     } catch (err: any) {
+      console.error("Persistent Checkout Failed:", err);
       setSyncStatus('error');
       setSyncError(err.message);
     }
-  }, [demoMode]);
+  }, [demoMode, fetchData]);
 
   const handleCheckIn = async (studentId: string) => {
-    if (activeSessions.some(s => s.studentId === studentId)) return;
-    const now = new Date();
-    
+    // Atomicity check: Prevent double check-in before UI/Sync catches up
+    if (activeSessionsRef.current.some(s => s.studentId === studentId)) {
+      console.warn("Patron is already active. Ignoring check-in request.");
+      return;
+    }
+
     try {
+      setSyncStatus('syncing');
+      const now = new Date();
+      
       if (!demoMode && isSupabaseConfigured) {
         const { error } = await supabase.from('sessions').insert([{ 
           patron_id: studentId, 
           check_in: now.toISOString() 
         }]);
         if (error) throw error;
+        // Trigger immediate dashboard refresh
+        await fetchData(true);
       } else {
         const student = patrons.find(s => s.id === studentId);
         const tempId = `local-${Date.now()}`;
         const newSession = { id: tempId, studentId, studentName: student?.name, checkIn: now };
         setActiveSessions(prev => [...prev, newSession]);
         setTodaySessions(prev => [...prev, newSession]);
+        setSyncStatus('online');
       }
     } catch (err: any) {
+      console.error("Persistent Check-In Failed:", err);
       setSyncStatus('error');
       setSyncError(err.message);
     }
@@ -406,7 +422,9 @@ const App: React.FC = () => {
           const patron = patrons.find(p => p.id === session.studentId);
           if (patron) {
             await sendOverdueAlert(patron, Math.floor(durationMins), appSettings.notifications.email);
-            if (!demoMode) await supabase.from('sessions').update({ alert_triggered: true }).eq('id', session.id);
+            if (!demoMode && isSupabaseConfigured) {
+              await supabase.from('sessions').update({ alert_triggered: true }).eq('id', session.id);
+            }
           }
         }
       }

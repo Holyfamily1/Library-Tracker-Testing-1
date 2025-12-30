@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { UserRole } from '../types';
 
 interface AuthProps {
   onAuthComplete: () => void;
@@ -23,7 +22,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
   // Extract project ref for visual confirmation
   const projectRef = isSupabaseConfigured ? (supabase as any).supabaseUrl.split('//')[1].split('.')[0] : null;
 
-  // Handle countdown timer for rate limits
   useEffect(() => {
     if (retryAfter <= 0) return;
     const timer = setInterval(() => {
@@ -48,7 +46,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
     setError(null);
     setMessage(null);
 
-    // If the backend is not configured, simulate a login for demo purposes
     if (!isSupabaseConfigured) {
       setTimeout(() => {
         setLoading(false);
@@ -74,20 +71,17 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
       
       const errorMessage = err.message || 'An authentication error occurred';
       
-      // Specifically handle the Supabase rate limit "after X seconds" error
-      if (errorMessage.includes('after')) {
+      if (errorMessage.includes('Invalid login credentials')) {
+        setError("Login Failed: Incorrect email or password. Please verify your credentials or ensure the account exists in the Supabase Auth dashboard.");
+      } else if (errorMessage.includes('after')) {
         const match = errorMessage.match(/after (\d+) seconds/);
         if (match && match[1]) {
           const seconds = parseInt(match[1], 10);
           setRetryAfter(seconds);
-          setError(`Security cooldown active. Please wait ${seconds}s before trying again.`);
+          setError(`Security cooldown. Please wait ${seconds}s before trying again.`);
         } else {
           setError(errorMessage);
         }
-      } else if (errorMessage.includes('Invalid login credentials')) {
-        setError("Login failed: The email or password provided is incorrect.");
-      } else if (err.message === 'Failed to fetch') {
-        setError("Connection failed. Please check your internet connection.");
       } else {
         setError(errorMessage);
       }
@@ -103,19 +97,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-900/10 rounded-full blur-[120px] pointer-events-none"></div>
 
       <div className="max-w-md w-full bg-[#0f172a]/80 backdrop-blur-xl rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden border border-slate-800 relative animate-in zoom-in-95 duration-500">
-        
-        {onClose && (
-          <button 
-            onClick={onClose}
-            className="absolute top-6 right-6 z-20 w-10 h-10 bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-md text-slate-400 rounded-full flex items-center justify-center transition-all group"
-            title="Enter Preview Mode"
-          >
-            <i className="fas fa-times group-hover:rotate-90 transition-transform"></i>
-          </button>
-        )}
-
         <div className="bg-gradient-to-br from-indigo-950 to-[#0f172a] p-12 text-center relative">
-          <div className="inline-flex items-center justify-center w-24 h-24 bg-white rounded-[2rem] rotate-3 mb-6 shadow-2xl shadow-indigo-500/10 p-4 border border-indigo-900/20">
+          <div className="inline-flex items-center justify-center w-24 h-24 bg-white rounded-[2rem] rotate-3 mb-6 shadow-2xl p-4 border border-indigo-900/20">
             <img 
               src="logo.png" 
               alt="HF NMTC Logo" 
@@ -124,40 +107,33 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
             />
           </div>
           <h1 className="brand-font text-3xl font-black text-white tracking-tight leading-tight">Staff Access</h1>
-          <p className="text-indigo-400 text-[9px] mt-2 font-black uppercase tracking-[0.4em]">Holy Family Library System</p>
+          <p className="text-indigo-400 text-[9px] mt-2 font-black uppercase tracking-[0.4em]">Holy Family Library Portal</p>
           
           <div className="absolute bottom-4 left-0 right-0 flex justify-center">
              <div className="flex items-center space-x-2 px-3 py-1 bg-black/20 rounded-full border border-white/5">
-                <div className={`w-1.5 h-1.5 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]'}`}></div>
+                <div className={`w-1.5 h-1.5 rounded-full ${isSupabaseConfigured ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                  {isSupabaseConfigured ? `Cloud Active: ${projectRef}` : 'Development/Demo Mode'}
+                  {isSupabaseConfigured ? `Cloud Active` : 'Preview Mode'}
                 </span>
              </div>
           </div>
         </div>
         
         <div className="p-10">
-          <div className="mb-10 text-center">
-            <h2 className="text-white font-black text-[10px] uppercase tracking-[0.3em]">Credentials Required</h2>
-            <p className="text-slate-500 text-[10px] mt-2 uppercase font-bold tracking-tighter italic">Official HF NMTC Librarian Portal</p>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-4 rounded-2xl text-xs font-bold flex flex-col items-start animate-in fade-in slide-in-from-top-2">
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-4 py-4 rounded-2xl text-xs font-bold animate-in fade-in slide-in-from-top-2">
                 <div className="flex items-start">
                   <i className="fas fa-exclamation-circle mt-0.5 mr-3 flex-shrink-0"></i>
                   <span>{error}</span>
                 </div>
-                {(error.includes('credentials') || retryAfter > 0) && (
-                  <button 
-                    type="button" 
-                    onClick={handleDemoBypass}
-                    className="mt-3 text-amber-500 hover:text-amber-400 underline decoration-dotted transition-colors self-end"
-                  >
-                    Bypass to Demo Mode?
-                  </button>
-                )}
+                <button 
+                  type="button" 
+                  onClick={handleDemoBypass}
+                  className="mt-3 w-full py-3 bg-amber-500/10 text-amber-500 rounded-xl hover:bg-amber-500/20 transition-all font-black uppercase tracking-[0.2em] text-[9px]"
+                >
+                  Bypass to Preview Mode
+                </button>
               </div>
             )}
 
@@ -169,8 +145,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
             )}
 
             <div className="space-y-2">
-              <label htmlFor="auth-email" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Email Address</label>
-              <div className="relative group">
+              <label htmlFor="auth-email" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Account Email</label>
+              <div className="relative">
                 <input
                   id="auth-email"
                   type="email"
@@ -178,27 +154,27 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
                   disabled={loading || retryAfter > 0}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-slate-800 bg-slate-900/50 text-white text-sm font-bold focus:border-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder:text-slate-600 disabled:opacity-50"
-                  placeholder="e.g. staff@hfnmtc.edu.gh"
+                  className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-slate-800 bg-slate-900/50 text-white text-sm font-bold focus:border-indigo-600 outline-none transition-all placeholder:text-slate-600"
+                  placeholder="staff@hfnmtc.edu.gh"
                 />
-                <i className="fas fa-envelope absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-indigo-500 transition-colors"></i>
+                <i className="fas fa-envelope absolute left-5 top-1/2 -translate-y-1/2 text-slate-600"></i>
               </div>
             </div>
 
-            {mode !== 'forgot-password' && (
-              <div className="space-y-2">
-                <div className="flex justify-between items-center px-1">
-                  <label htmlFor="auth-password" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Password</label>
-                  <button 
-                    type="button"
-                    disabled={loading || retryAfter > 0}
-                    onClick={() => setMode('forgot-password')}
-                    className="text-[9px] font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-wider disabled:opacity-50"
-                  >
-                    Forgot?
-                  </button>
-                </div>
-                <div className="relative group">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center px-1">
+                <label htmlFor="auth-password" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Secure Key</label>
+                <button 
+                  type="button"
+                  disabled={loading || retryAfter > 0}
+                  onClick={() => setMode(mode === 'login' ? 'forgot-password' : 'login')}
+                  className="text-[9px] font-black text-indigo-400 uppercase tracking-wider"
+                >
+                  {mode === 'login' ? 'Forgot?' : 'Back to Login'}
+                </button>
+              </div>
+              {mode === 'login' && (
+                <div className="relative">
                   <input
                     id="auth-password"
                     type={showPassword ? "text" : "password"}
@@ -206,29 +182,28 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
                     disabled={loading || retryAfter > 0}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-12 pr-12 py-4 rounded-2xl border-2 border-slate-800 bg-slate-900/50 text-white text-sm font-bold focus:border-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder:text-slate-600 disabled:opacity-50"
+                    className="w-full pl-12 pr-12 py-4 rounded-2xl border-2 border-slate-800 bg-slate-900/50 text-white text-sm font-bold focus:border-indigo-600 outline-none transition-all placeholder:text-slate-600"
                     placeholder="••••••••"
                   />
-                  <i className="fas fa-key absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-indigo-500 transition-colors"></i>
+                  <i className="fas fa-key absolute left-5 top-1/2 -translate-y-1/2 text-slate-600"></i>
                   <button 
                     type="button" 
-                    disabled={loading || retryAfter > 0}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors p-2 disabled:opacity-50"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-2"
                   >
                     <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
                   </button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             <button
               type="submit"
               disabled={loading || retryAfter > 0}
-              className={`w-full font-black py-5 rounded-2xl active:scale-[0.98] transition-all shadow-xl flex items-center justify-center space-x-3 disabled:opacity-50 group ${
+              className={`w-full font-black py-5 rounded-2xl active:scale-[0.98] transition-all shadow-xl flex items-center justify-center space-x-3 ${
                 retryAfter > 0 
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-indigo-900/20'
+                : 'bg-indigo-600 text-white hover:bg-indigo-500'
               }`}
             >
               {loading ? (
@@ -240,38 +215,20 @@ const Auth: React.FC<AuthProps> = ({ onAuthComplete, onClose }) => {
                 </>
               ) : (
                 <>
-                  <i className={`fas ${mode === 'login' ? 'fa-fingerprint' : 'fa-paper-plane'} group-hover:scale-110 transition-transform`}></i>
+                  <i className={`fas ${mode === 'login' ? 'fa-fingerprint' : 'fa-paper-plane'}`}></i>
                   <span className="uppercase tracking-widest">
-                    {mode === 'login' ? 'Authenticate' : 'Recover Account'}
+                    {mode === 'login' ? 'Sign In' : 'Reset Key'}
                   </span>
                 </>
               )}
             </button>
-            
-            <button 
-              type="button"
-              onClick={handleDemoBypass}
-              className="w-full text-center text-[10px] font-black text-slate-600 hover:text-amber-500 uppercase tracking-widest transition-colors mt-2"
-            >
-              Bypass Login (Preview Mode)
-            </button>
-
-            {mode === 'forgot-password' && (
-              <button 
-                type="button"
-                onClick={() => setMode('login')}
-                className="w-full text-center text-[10px] font-black text-indigo-400 hover:text-indigo-300 uppercase tracking-widest transition-colors mt-2"
-              >
-                Back to Login
-              </button>
-            )}
           </form>
         </div>
 
         <div className="bg-black/20 p-8 text-center border-t border-white/5">
           <div className="flex items-center justify-center space-x-3 text-[10px] text-slate-500 uppercase tracking-widest font-black">
             <i className="fas fa-lock text-amber-500"></i>
-            <span>Verified NMTC Berekum Gateway</span>
+            <span>Secured Gateway</span>
           </div>
         </div>
       </div>
